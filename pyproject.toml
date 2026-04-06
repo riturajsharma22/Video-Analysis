@@ -1,0 +1,16 @@
+[project]
+name = "traffic-video-analyzer"
+version = "0.1.0"
+description = "Traffic Video Analyzer: YOLOv8 + DeepSORT + lane events + NL queries"
+requires-python = ">=3.10"
+dependencies = [
+  "opencv-python>=4.8.0",
+  "ultralytics>=8.2.0",
+  "deep-sort-realtime>=1.3.2",
+  "pandas>=2.1.0",
+  "numpy>=1.23.0",
+  "openai>=1.30.0",
+]
+
+[tool.uv]
+# Keep uv fast & deterministic; lockfile can be generated via `uv lock`.

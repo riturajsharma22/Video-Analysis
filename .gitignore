@@ -1,0 +1,11 @@
+# Ignore video files
+*.mp4
+
+# Ignore large model files (optional)
+*.pt
+
+# Ignore virtual env
+.venv/
+
+# Ignore cache
+__pycache__/
