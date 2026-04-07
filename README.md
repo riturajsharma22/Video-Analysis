@@ -81,12 +81,6 @@ uv venv -p 3.10
 uv sync
 ```
 
-### Install Playwright browser (for recording)
-
-```powershell
-playwright install chromium
-```
-
 ---
 
 ## Environment Setup
@@ -108,7 +102,7 @@ LLM_PROVIDER=groq
 ### Step 1 — Process a video file
 
 ```powershell
-python main.py --video "D:\path\to\traffic.mp4"
+uv run python main.py --video "D:\path\to\traffic.mp4"
 ```
 
 This will:
@@ -124,30 +118,33 @@ This will:
 If you already have `outputs/events.csv`:
 
 ```powershell
-python main.py --events-csv outputs/events.csv --ask "Which lane is busiest?"
+uv run python main.py --events-csv outputs/events.csv --ask "Which lane is busiest?"
 ```
 
 ---
 
-## Query Examples
+## Sample Queries and Results
 
-### Simple queries (rule-based, no LLM needed)
+These are real outputs generated from a 34-minute traffic CCTV video.
 
-```powershell
-python main.py --events-csv outputs/events.csv --ask "How many vehicles were detected per lane?"
-python main.py --events-csv outputs/events.csv --ask "Count cars in the left lane between 00:10:00 and 00:20:00"
-python main.py --events-csv outputs/events.csv --ask "How many trucks were detected by lane?"
-python main.py --events-csv outputs/events.csv --ask "Count vehicles before 00:05:00"
-```
+### Rule-based queries (no LLM needed)
 
-### Time-based queries (supports real clock time)
+| Query | Answer |
+|---|---|
+| "How many vehicles were detected per lane?" | right: 836, left: 151 |
+| "how many cars passed between 3pm and 3:30pm?" | 729 cars |
+| "Count vehicles before 00:05:00" | 109 vehicles |
+| "How many trucks were detected by lane?" | right: 127, left: 52 |
 
-```powershell
-python main.py --events-csv outputs/events.csv --ask "how many cars passed between 3pm and 3:30pm?"
-python main.py --events-csv outputs/events.csv --ask "Count trucks after 00:30:00"
-```
+### Complex LLM queries using Groq (`--llm-reasoning`)
 
-### Complex queries using Groq LLM (`--llm-reasoning`)
+| Query | Answer |
+|---|---|
+| "Which lane has more trucks compared to cars?" | Left lane has higher truck-to-car ratio (0.667 vs 0.195) |
+| "Summarize overall traffic patterns by vehicle type and lane" | Cars 88% right, Trucks 59% right, Buses 64% right |
+| "Which vehicle class dominates the right lane and by how much?" | Cars dominate with 652 vehicles — 525 more than trucks |
+
+### Run all 3 complex queries at once
 
 ```powershell
 uv run python main.py --events-csv outputs/events.csv `
@@ -155,42 +152,6 @@ uv run python main.py --events-csv outputs/events.csv `
   --ask "Summarize overall traffic patterns by vehicle type and lane" `
   --ask "Which vehicle class dominates the right lane and by how much?" `
   --llm-reasoning
-```
-
----
-
-## Sample Query Results
-
-These are real outputs from a 34-minute traffic video (2083 seconds):
-
-### Q1 — Filtering + Comparison
-**Query:** "Which lane has more trucks compared to cars?"
-
-**Answer:**
-```
-Left lane:  52 trucks / 78 cars  = 0.667 ratio (2/3 trucks per car)
-Right lane: 127 trucks / 652 cars = 0.195 ratio (1/5 trucks per car)
-→ The LEFT lane has a higher truck-to-car ratio.
-```
-
-### Q2 — Pattern Recognition + Aggregation
-**Query:** "Summarize overall traffic patterns by vehicle type and lane"
-
-**Answer:**
-```
-Cars:   655 total → 78 (12%) left lane, 577 (88%) right lane
-Trucks: 127 total → 52 (41%) left lane, 75  (59%) right lane
-Buses:  58  total → 21 (36%) left lane, 37  (64%) right lane
-Overall: Right lane dominates with 836 vehicles vs 151 in left lane.
-```
-
-### Q3 — Complex Reasoning
-**Query:** "Which vehicle class dominates the right lane and by how much?"
-
-**Answer:**
-```
-Cars dominate the right lane with 652 vehicles.
-Margin over next class (trucks): 525 vehicles.
 ```
 
 ---
@@ -248,22 +209,22 @@ Each frame is passed through YOLOv8 which returns bounding boxes and class label
 DeepSORT assigns a consistent ID to each vehicle across frames, so the same car keeps the same ID even as it moves through the frame.
 
 ### 3. Lane Assignment
-The frame is split at the midpoint (x = 0.5 by default). Vehicles with center x < 0.5 → `left` lane. Vehicles with center x >= 0.5 → `right` lane.
+The frame is split at the midpoint (x = 0.5 by default). Vehicles with center x < 0.5 go to `left` lane. Vehicles with center x >= 0.5 go to `right` lane.
 
 ### 4. Event Logging
 An event is written to CSV only when a vehicle is first detected or changes lane. This prevents counting the same vehicle multiple times.
 
-### 5. Query Engine
+### 5. Query Engine Flow
 ```
-User question (English)
+User question (plain English)
         ↓
-Rule-based parser tries first
-        ↓ (if fails)
-Groq LLM converts to structured JSON
+Rule-based parser tries first (fast, no API call)
+        ↓ (if rule-based fails)
+Groq LLM converts question to structured JSON
         ↓
-Pandas filters events.csv
+Pandas filters events.csv using the structured query
         ↓
-Answer returned
+Clean answer returned to user
 ```
 
 ---
@@ -275,7 +236,7 @@ Answer returned
 GROQ_API_KEY=your_key_here
 LLM_PROVIDER=groq
 ```
-Get key: https://console.groq.com
+Get key at: https://console.groq.com
 
 ### OpenAI
 ```
@@ -285,12 +246,13 @@ LLM_PROVIDER=openai
 
 ### Ollama (Local, no internet needed)
 ```powershell
-# Install Ollama, then:
 ollama pull llama3.1
 
 $env:LLM_PROVIDER="ollama"
 $env:OLLAMA_MODEL="llama3.1"
-uv run python main.py --events-csv outputs/events.csv --ask "Which lane is busiest?" --llm-reasoning
+uv run python main.py --events-csv outputs/events.csv `
+  --ask "Which lane is busiest?" `
+  --llm-reasoning
 ```
 
 ---
@@ -299,14 +261,15 @@ uv run python main.py --events-csv outputs/events.csv --ask "Which lane is busie
 
 - Python 3.10+
 - Windows / Mac / Linux
-- CUDA GPU (optional, speeds up YOLOv8 significantly)
+- CUDA GPU (optional — speeds up YOLOv8 significantly)
 
 Key dependencies:
+
 ```
-ultralytics       # YOLOv8
-deep-sort-realtime # DeepSORT tracking
-groq              # Groq LLM API
-pandas            # CSV querying
-python-dotenv     # .env loading
-opencv-python     # Video processing
+ultralytics          # YOLOv8 object detection
+deep-sort-realtime   # DeepSORT object tracking
+groq                 # Groq LLM API (free tier)
+pandas               # CSV querying and aggregation
+python-dotenv        # Auto-loads .env at startup
+opencv-python        # Video frame processing
 ```
