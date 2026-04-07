@@ -158,24 +158,17 @@ uv run python main.py --events-csv outputs/events.csv `
 
 ## Events CSV Format
 
-`outputs/events.csv` columns:
+
+> Events are only logged when a track is **first seen** or **changes lane** to avoid duplicate counting.
+
+### Sample CSV output:
+```
 
 timestamp_s,wall_clock_time,object_id,class,lane
 0.2002,15:00:00,1,car,right
 0.2002,15:00:00,3,car,right
 0.6006,15:00:00,6,car,left
 16.8168,15:00:16,45,truck,left
-
-> Events are only logged when a track is **first seen** or **changes lane** to avoid duplicate counting.
-
-### Sample CSV output:
-```
-timestamp_s,object_id,class,lane
-0.2002,1,car,right
-0.2002,3,car,right
-0.6006,6,car,left
-16.8168,45,truck,left
-20.0200,72,bus,left
 ```
 
 ---
