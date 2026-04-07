@@ -273,3 +273,17 @@ pandas               # CSV querying and aggregation
 python-dotenv        # Auto-loads .env at startup
 opencv-python        # Video frame processing
 ```
+## Note on Video Length
+
+> Due to time constraints during development, this solution was tested and 
+> demonstrated on a **34-minute traffic video**. However, the system is 
+> designed to handle **1-hour (or longer) videos** efficiently.
+>
+> Key optimizations that ensure performance on longer videos:
+> - **Frame skipping** (default: every 6th frame) — reduces processing load by 83%
+> - **Frame resizing** (default: 640x360) — speeds up YOLOv8 inference significantly  
+> - **Efficient event logging** — only writes to CSV on first detection or lane change
+>
+> Based on the processing speed observed during testing, a **1-hour video** 
+> is estimated to complete processing in **under 30 minutes** on a standard 
+> CPU, and significantly faster with a CUDA-enabled GPU.
