@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List
 
 import pandas as pd
+
+from config import VIDEO_START_TIME
 
 
 @dataclass(frozen=True)
@@ -47,10 +50,12 @@ class EventLogger:
         return len(self._events)
 
     def to_dataframe(self) -> pd.DataFrame:
+        start_dt = datetime.strptime(VIDEO_START_TIME, "%H:%M:%S")
         return pd.DataFrame(
             [
                 {
                     "timestamp_s": e.timestamp_s,
+                    "wall_clock_time": (start_dt + timedelta(seconds=float(e.timestamp_s))).time().strftime("%H:%M:%S"),
                     "object_id": e.object_id,
                     "class": e.class_name,
                     "lane": e.lane,

@@ -48,6 +48,69 @@ def parse_time_to_seconds(text: str) -> Optional[float]:
     return float(total)
 
 
+_CLOCK_RE = re.compile(
+    r"^(?P<h>\d{1,2})(?::(?P<m>\d{1,2}))?(?::(?P<s>\d{1,2}))?\s*(?P<ampm>am|pm)?$",
+    re.IGNORECASE,
+)
+
+
+def parse_clock_time_to_seconds(text: str) -> Optional[float]:
+    """Parse a wall-clock time into an offset in seconds from VIDEO_START_TIME.
+
+    Accepted examples:
+      - "3:00 PM", "3pm"
+      - "15:00", "15:30:00"
+
+    Returns:
+      seconds offset from VIDEO_START_TIME, or None if the input does not look
+      like a wall-clock time.
+
+    Notes:
+      - To avoid ambiguity with relative offsets like "00:10:00", this only
+        treats 24-hour times as wall-clock when hour >= 13, unless AM/PM is present.
+    """
+
+    raw = text.strip().lower()
+    raw = re.sub(r"\s+", " ", raw)
+    m = _CLOCK_RE.match(raw.replace(" ", ""))
+    if not m:
+        return None
+
+    hour = int(m.group("h") or 0)
+    minute = int(m.group("m") or 0)
+    second = int(m.group("s") or 0)
+    ampm = (m.group("ampm") or "").lower()
+
+    if minute > 59 or second > 59 or hour > 23:
+        return None
+
+    # Determine whether to treat as wall-clock.
+    is_wall_clock = bool(ampm) or hour >= 13
+    if not is_wall_clock:
+        return None
+
+    if ampm:
+        if hour < 1 or hour > 12:
+            return None
+        if hour == 12:
+            hour = 0
+        if ampm == "pm":
+            hour += 12
+
+    query_s = hour * 3600 + minute * 60 + second
+
+    from config import VIDEO_START_TIME
+
+    start_s = parse_time_to_seconds(VIDEO_START_TIME)
+    if start_s is None:
+        return None
+
+    offset = float(query_s - start_s)
+    if offset < 0:
+        offset += 24 * 3600
+    return offset
+
+
 def format_seconds(seconds: float) -> str:
     td = timedelta(seconds=float(seconds))
     # timedelta string is like '0:01:02.345000'

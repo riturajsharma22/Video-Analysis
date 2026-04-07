@@ -23,7 +23,7 @@ from typing import Any, Dict, Optional
 
 import pandas as pd
 
-from utils import TimeWindow, get_openai_api_key, get_openai_model, parse_time_to_seconds
+from utils import TimeWindow, get_openai_api_key, get_openai_model, parse_clock_time_to_seconds, parse_time_to_seconds
 
 
 @dataclass(frozen=True)
@@ -53,12 +53,24 @@ class RuleBasedQueryParser:
 
     _LANE_RE = re.compile(r"\b(left|right)\b", re.IGNORECASE)
     _CLASS_RE = re.compile(r"\b(car|truck|bus|person|people|vehicle|vehicles)\b", re.IGNORECASE)
+    _CLOCK_TOKEN_RE = r"[0-9:.]+(?:\s*(?:am|pm))?"
     _BETWEEN_RE = re.compile(
-        r"\bbetween\s+(?P<t1>[0-9:.]+)\s+(?:and|to)\s+(?P<t2>[0-9:.]+)\b",
+        rf"\bbetween\s+(?P<t1>{_CLOCK_TOKEN_RE})\s+(?:and|to)\s+(?P<t2>{_CLOCK_TOKEN_RE})\b",
         re.IGNORECASE,
     )
-    _AFTER_RE = re.compile(r"\b(after|since)\s+(?P<t>[0-9:.]+)\b", re.IGNORECASE)
-    _BEFORE_RE = re.compile(r"\b(before|until)\s+(?P<t>[0-9:.]+)\b", re.IGNORECASE)
+    _RANGE_RE = re.compile(
+        rf"\b(?:from\s+)?(?P<t1>{_CLOCK_TOKEN_RE})\s+to\s+(?P<t2>{_CLOCK_TOKEN_RE})\b",
+        re.IGNORECASE,
+    )
+    _AFTER_RE = re.compile(rf"\b(after|since)\s+(?P<t>{_CLOCK_TOKEN_RE})\b", re.IGNORECASE)
+    _BEFORE_RE = re.compile(rf"\b(before|until)\s+(?P<t>{_CLOCK_TOKEN_RE})\b", re.IGNORECASE)
+
+    def _parse_time_token_to_seconds(self, text: str) -> Optional[float]:
+        t = text.strip()
+        clock_s = parse_clock_time_to_seconds(t)
+        if clock_s is not None:
+            return float(clock_s)
+        return parse_time_to_seconds(t)
 
     def parse(self, text: str) -> Optional[StructuredQuery]:
         q = text.strip().lower()
@@ -78,20 +90,28 @@ class RuleBasedQueryParser:
         tw = TimeWindow()
         m_between = self._BETWEEN_RE.search(q)
         if m_between:
-            t1 = parse_time_to_seconds(m_between.group("t1"))
-            t2 = parse_time_to_seconds(m_between.group("t2"))
+            t1 = self._parse_time_token_to_seconds(m_between.group("t1"))
+            t2 = self._parse_time_token_to_seconds(m_between.group("t2"))
             if t1 is not None and t2 is not None:
                 tw = TimeWindow(start_s=min(t1, t2), end_s=max(t1, t2))
 
+        if tw.start_s is None and tw.end_s is None:
+            m_range = self._RANGE_RE.search(q)
+            if m_range:
+                t1 = self._parse_time_token_to_seconds(m_range.group("t1"))
+                t2 = self._parse_time_token_to_seconds(m_range.group("t2"))
+                if t1 is not None and t2 is not None:
+                    tw = TimeWindow(start_s=min(t1, t2), end_s=max(t1, t2))
+
         m_after = self._AFTER_RE.search(q)
         if m_after:
-            t = parse_time_to_seconds(m_after.group("t"))
+            t = self._parse_time_token_to_seconds(m_after.group("t"))
             if t is not None:
                 tw = TimeWindow(start_s=t, end_s=tw.end_s)
 
         m_before = self._BEFORE_RE.search(q)
         if m_before:
-            t = parse_time_to_seconds(m_before.group("t"))
+            t = self._parse_time_token_to_seconds(m_before.group("t"))
             if t is not None:
                 tw = TimeWindow(start_s=tw.start_s, end_s=t)
 
@@ -272,6 +292,8 @@ class QueryEngine:
 
         provider = (os.getenv("LLM_PROVIDER") or "openai").strip().lower()
         try:
+            if provider == "groq":
+                return self._groq_to_structured(query)
             if provider == "ollama":
                 return self._ollama_to_structured(query)
             if provider == "openai":
@@ -279,6 +301,40 @@ class QueryEngine:
         except Exception as e:
             self._log.warning("LLM fallback failed: %s", e)
         return None
+
+    def _groq_to_structured(self, query: str):
+        from groq import Groq
+
+        client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+        system = (
+            "You convert traffic video analytics questions into JSON with keys: "
+            "intent (count|group_count), class_name (car|truck|bus|person|vehicle|null), "
+            "lane (left|right|null), group_by (lane|class|null), "
+            "time_window: {start_s: number|null, end_s: number|null}. "
+            "Only output JSON, nothing else."
+        )
+        resp = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": query}
+            ],
+            temperature=0
+        )
+        content = resp.choices[0].message.content
+        content = content.strip().strip("```json").strip("```").strip()
+        data = json.loads(content)
+        tw = data.get("time_window") or {}
+        return StructuredQuery(
+            intent=str(data.get("intent") or "count"),
+            class_name=data.get("class_name"),
+            lane=data.get("lane"),
+            group_by=data.get("group_by"),
+            time_window=TimeWindow(
+                start_s=tw.get("start_s"),
+                end_s=tw.get("end_s")
+            ),
+        )
 
     def _openai_to_structured(self, query: str) -> Optional[StructuredQuery]:
         api_key = get_openai_api_key()
@@ -369,11 +425,32 @@ class QueryEngine:
     def _llm_reason_over_summary(self, query: str) -> Optional[str]:
         provider = (os.getenv("LLM_PROVIDER") or "openai").strip().lower()
         summary = self._build_summary()
+        if provider == "groq":
+            return self._groq_reason(query, summary)
         if provider == "ollama":
             return self._ollama_reason(query, summary)
         if provider == "openai":
             return self._openai_reason(query, summary)
         return None
+
+    def _groq_reason(self, query, summary):
+        from groq import Groq
+
+        client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+        system = (
+            "You answer questions about traffic events from a "
+            "provided JSON summary. Do not invent numbers."
+        )
+        resp = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": 
+                 f"Summary JSON:\n{json.dumps(summary)}\n\nQuestion: {query}"}
+            ],
+            temperature=0.2
+        )
+        return resp.choices[0].message.content
 
     def _build_summary(self) -> Dict[str, Any]:
         df = self._df

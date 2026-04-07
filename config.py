@@ -9,6 +9,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+# Assume the video starts at this wall-clock time.
+# Used to convert between wall-clock times (e.g., "3:30 PM") and seconds-from-start offsets.
+VIDEO_START_TIME = "15:00:00"  # 3:00 PM
+
+
 @dataclass(frozen=True)
 class AnalyzerConfig:
     """Runtime configuration."""
