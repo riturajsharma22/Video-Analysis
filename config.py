@@ -1,7 +1,4 @@
-"""Configuration for Traffic Video Analyzer.
 
-Keep this file small and explicit. Override via CLI args in `main.py`.
-"""
 
 from __future__ import annotations
 
