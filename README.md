@@ -160,12 +160,11 @@ uv run python main.py --events-csv outputs/events.csv `
 
 `outputs/events.csv` columns:
 
-| Column | Type | Description |
-|---|---|---|
-| `timestamp_s` | float | Seconds from video start |
-| `object_id` | int | Stable DeepSORT track ID |
-| `class` | string | `car`, `truck`, or `bus` |
-| `lane` | string | `left` or `right` |
+timestamp_s,wall_clock_time,object_id,class,lane
+0.2002,15:00:00,1,car,right
+0.2002,15:00:00,3,car,right
+0.6006,15:00:00,6,car,left
+16.8168,15:00:16,45,truck,left
 
 > Events are only logged when a track is **first seen** or **changes lane** to avoid duplicate counting.
 
